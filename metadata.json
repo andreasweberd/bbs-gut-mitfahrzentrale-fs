@@ -1,0 +1,6 @@
+{
+  "name": "BBS GuT Rideshare",
+  "description": "School Carpooling and Rideshare Bulletin Board for BBS GuT with student token authentication, offer/request management, admin dashboard, and safety audit tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
