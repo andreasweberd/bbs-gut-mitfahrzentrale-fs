@@ -79,7 +79,7 @@ let entries: DBEntry[] = [
   {
     id: 102,
     titel: "Suche Mitgelegenheit ab Trier-Nord / Hauptbahnhof",
-    nachricht: "Hallo zusammen! Suche für Montag und Mittwoch zur 1. Stunde (07:45 Uhr) eine Mitfahrgelegenheit vom Hbf Trier zur Berufsbildenden Schule Gewerbe und Technik. Beteilige mich gerne am Spritgeld!",
+    nachricht: "Hallo zusammen! Suche für Montag und Mittwoch zur 1. Stunde (07:45 Uhr) eine Mitfahrgelegenheit vom Hbf Trier zur Berufsbildenden Schule Gestaltung und Technik. Beteilige mich gerne am Spritgeld!",
     typ: "Gesuch",
     sitzplaetze: null,
     schueler_id: 2,

@@ -117,7 +117,7 @@ export default function App() {
             <span className="font-serif italic text-white font-bold text-sm">
               Mitfahrzentrale
             </span>
-            <span>· Berufsbildende Schule Gewerbe und Technik</span>
+            <span>· Berufsbildende Schule Gestaltung und Technik</span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-center sm:justify-end">
