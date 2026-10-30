@@ -10,6 +10,14 @@ export interface Schueler {
   created_at: string;
 }
 
+export interface CurrentUser {
+  id: number;
+  nachname: string;
+  email?: string;
+  status: UserStatus;
+  isAdmin: boolean;
+}
+
 export interface Eintrag {
   id: number;
   titel: string;

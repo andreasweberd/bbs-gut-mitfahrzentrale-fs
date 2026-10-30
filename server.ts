@@ -125,7 +125,13 @@ app.post("/api/v1/anmelden", (req, res) => {
   }
 
   if (token === ADMIN_SECRET) {
-    return res.json({ erfolg: true, status: "aktiv", isAdmin: true });
+    return res.json({
+      erfolg: true,
+      status: "aktiv",
+      isAdmin: true,
+      schuelerId: 0,
+      nachname: "Administrator",
+    });
   }
 
   const schueler = getStudentByToken(token);
@@ -133,7 +139,46 @@ app.post("/api/v1/anmelden", (req, res) => {
     return res.status(401).json({ erfolg: false, fehler: "Token ungültig oder inaktiv." });
   }
 
-  return res.json({ erfolg: true, status: schueler.status, isAdmin: false });
+  return res.json({
+    erfolg: true,
+    status: schueler.status,
+    isAdmin: false,
+    schuelerId: schueler.id,
+    nachname: schueler.nachname,
+    email: schueler.email,
+  });
+});
+
+// Check Current User session
+app.get("/api/v1/me", (req, res) => {
+  const token = (req.headers["x-auth-token"] as string) || "";
+  if (!token) {
+    return res.status(401).json({ erfolg: false, fehler: "Kein Token vorhanden." });
+  }
+
+  if (token === ADMIN_SECRET) {
+    return res.json({
+      erfolg: true,
+      status: "aktiv",
+      isAdmin: true,
+      schuelerId: 0,
+      nachname: "Administrator",
+    });
+  }
+
+  const schueler = getStudentByToken(token);
+  if (!schueler) {
+    return res.status(401).json({ erfolg: false, fehler: "Token ungültig oder inaktiv." });
+  }
+
+  return res.json({
+    erfolg: true,
+    status: schueler.status,
+    isAdmin: false,
+    schuelerId: schueler.id,
+    nachname: schueler.nachname,
+    email: schueler.email,
+  });
 });
 
 // 2. Public Listings
@@ -234,6 +279,36 @@ app.get("/api/v1/eintraege/:id/kontakt", (req, res) => {
   return res.json({
     nachname: author.nachname,
     email: author.email,
+  });
+});
+
+// 5. Delete Entry (User deleting own entry or Admin)
+app.delete("/api/v1/eintraege/:id", (req, res) => {
+  const token = req.headers["x-auth-token"] as string;
+  if (!token) {
+    return res.status(401).json({ fehler: "Authentifizierung erforderlich. Bitte Token übergeben." });
+  }
+
+  const id = parseInt(req.params.id, 10);
+  const entryIndex = entries.findIndex((e) => e.id === id);
+
+  if (entryIndex === -1) {
+    return res.status(404).json({ fehler: "Eintrag nicht gefunden oder bereits gelöscht." });
+  }
+
+  const entry = entries[entryIndex];
+  const isAdminUser = token === ADMIN_SECRET;
+  const schueler = getStudentByToken(token);
+
+  if (!isAdminUser && (!schueler || schueler.id !== entry.schueler_id)) {
+    return res.status(403).json({ fehler: "Du darfst nur deine eigenen Einträge löschen." });
+  }
+
+  entries.splice(entryIndex, 1);
+  return res.json({
+    erfolg: true,
+    message: "Eintrag erfolgreich gelöscht.",
+    id,
   });
 });
 
