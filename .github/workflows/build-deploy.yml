@@ -32,10 +32,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: 📦 Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Using npm ci with package-lock.json"
+            npm ci
+          else
+            echo "package-lock.json not found, falling back to npm install"
+            npm install
+          fi
 
       - name: 🔍 Lint & Typecheck
         run: npm run lint
@@ -62,7 +68,7 @@ jobs:
           cp .dockerignore release-artifact/
           # Copy dependencies descriptor and configuration
           cp package.json release-artifact/
-          cp package-lock.json release-artifact/
+          [ -f package-lock.json ] && cp package-lock.json release-artifact/ || true
           cp .env.example release-artifact/
           cp README.md release-artifact/
 
