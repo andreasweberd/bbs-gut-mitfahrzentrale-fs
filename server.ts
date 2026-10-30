@@ -1,112 +1,32 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import {
+  initDatabase,
+  isDbMySQL,
+  getStudentByToken,
+  getAllStudents,
+  createStudent,
+  updateStudentStatus,
+  deleteStudent,
+  getAllPublicEntries,
+  createEntry,
+  getEntryById,
+  getStudentById,
+  deleteEntry,
+  getAdminEntries,
+  getStats,
+} from "./db.js";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
 
-// In-Memory Data Store (pre-seeded with realistic BBS GuT data)
-interface DBStudent {
-  id: number;
-  nachname: string;
-  email: string;
-  token: string;
-  status: 'aktiv' | 'inaktiv';
-  created_at: string;
-}
-
-interface DBEntry {
-  id: number;
-  titel: string;
-  nachricht: string;
-  typ: 'Angebot' | 'Gesuch';
-  sitzplaetze?: number | null;
-  schueler_id: number;
-  erstellungsdatum: string;
-}
-
-let students: DBStudent[] = [
-  {
-    id: 1,
-    nachname: "Weber",
-    email: "senior.weber@gmail.com",
-    token: "TOKEN-2026-001",
-    status: "aktiv",
-    created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-  },
-  {
-    id: 2,
-    nachname: "Müller",
-    email: "m.mueller@bbs-gut-trier.de",
-    token: "TOKEN-2026-002",
-    status: "aktiv",
-    created_at: new Date(Date.now() - 86400000 * 8).toISOString(),
-  },
-  {
-    id: 3,
-    nachname: "Schmidt",
-    email: "l.schmidt@bbs-gut.de",
-    token: "TOKEN-2026-003",
-    status: "aktiv",
-    created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-  {
-    id: 4,
-    nachname: "Schneider",
-    email: "p.schneider@schueler-gut.de",
-    token: "TOKEN-2026-004",
-    status: "inaktiv",
-    created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-];
-
-let entries: DBEntry[] = [
-  {
-    id: 101,
-    titel: "Tägliche Mitfahrt ab Konz / Saarburg zur BBS GuT",
-    nachricht: "Fahre jeden Schultag um 07:15 Uhr an der Haltestelle Konz Mitte ab. Biete pünktliche und entspannte Fahrt im Nichtraucher-Pkw. Rückfahrt nach der 6. oder 8. Stunde.",
-    typ: "Angebot",
-    sitzplaetze: 3,
-    schueler_id: 1,
-    erstellungsdatum: new Date(Date.now() - 86400000 * 3).toISOString(),
-  },
-  {
-    id: 102,
-    titel: "Suche Mitgelegenheit ab Trier-Nord / Hauptbahnhof",
-    nachricht: "Hallo zusammen! Suche für Montag und Mittwoch zur 1. Stunde (07:45 Uhr) eine Mitfahrgelegenheit vom Hbf Trier zur Berufsbildenden Schule Gestaltung und Technik. Beteilige mich gerne am Spritgeld!",
-    typ: "Gesuch",
-    sitzplaetze: null,
-    schueler_id: 2,
-    erstellungsdatum: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 103,
-    titel: "Freie Plätze ab Schweich / Kenn (Di & Do)",
-    nachricht: "Fahre dienstags und donnerstags um 07:20 Uhr ab Schweich DB-Bahnhof über Kenn direkt zur BBS GuT. 2 freie Plätze im Ford Focus.",
-    typ: "Angebot",
-    sitzplaetze: 2,
-    schueler_id: 3,
-    erstellungsdatum: new Date(Date.now() - 3600000 * 8).toISOString(),
-  },
-];
-
-let nextStudentId = 5;
-let nextEntryId = 104;
-
 const ADMIN_SECRET = process.env.ADMIN_TOKEN || "Wulli";
-
-// Helper: Find student by token
-function getStudentByToken(token: string): DBStudent | null {
-  if (!token) return null;
-  const found = students.find((s) => s.token === token && s.status === "aktiv");
-  return found || null;
-}
 
 // Helper: Spam Detector
 function checkSpam(titel: string, nachricht: string): boolean {
@@ -115,10 +35,20 @@ function checkSpam(titel: string, nachricht: string): boolean {
   return forbidden.some((kw) => text.includes(kw));
 }
 
+// --- HEALTH & STATUS ROUTE ---
+app.get("/api/v1/health", (req, res) => {
+  res.json({
+    status: "ok",
+    database: isDbMySQL() ? "mysql" : "in-memory",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
 // --- API ROUTES ---
 
 // 1. Anmelden / Auth
-app.post("/api/v1/anmelden", (req, res) => {
+app.post("/api/v1/anmelden", async (req, res) => {
   const { token } = req.body || {};
   if (!token) {
     return res.status(400).json({ erfolg: false, fehler: "Kein Token im Request angegeben." });
@@ -134,7 +64,7 @@ app.post("/api/v1/anmelden", (req, res) => {
     });
   }
 
-  const schueler = getStudentByToken(token);
+  const schueler = await getStudentByToken(token);
   if (!schueler) {
     return res.status(401).json({ erfolg: false, fehler: "Token ungültig oder inaktiv." });
   }
@@ -150,7 +80,7 @@ app.post("/api/v1/anmelden", (req, res) => {
 });
 
 // Check Current User session
-app.get("/api/v1/me", (req, res) => {
+app.get("/api/v1/me", async (req, res) => {
   const token = (req.headers["x-auth-token"] as string) || "";
   if (!token) {
     return res.status(401).json({ erfolg: false, fehler: "Kein Token vorhanden." });
@@ -166,7 +96,7 @@ app.get("/api/v1/me", (req, res) => {
     });
   }
 
-  const schueler = getStudentByToken(token);
+  const schueler = await getStudentByToken(token);
   if (!schueler) {
     return res.status(401).json({ erfolg: false, fehler: "Token ungültig oder inaktiv." });
   }
@@ -182,35 +112,24 @@ app.get("/api/v1/me", (req, res) => {
 });
 
 // 2. Public Listings
-app.get("/api/v1/eintraege", (req, res) => {
-  const result = entries
-    .map((e) => {
-      const schueler = students.find((s) => s.id === e.schueler_id);
-      return {
-        id: e.id,
-        titel: e.titel,
-        nachricht: e.nachricht,
-        typ: e.typ,
-        sitzplaetze: e.sitzplaetze,
-        erstellungsdatum: e.erstellungsdatum,
-        schueler_id: e.schueler_id,
-        verfasser_aktiv: schueler ? schueler.status === "aktiv" : false,
-      };
-    })
-    .sort((a, b) => new Date(b.erstellungsdatum).getTime() - new Date(a.erstellungsdatum).getTime());
-
-  return res.json(result);
+app.get("/api/v1/eintraege", async (req, res) => {
+  try {
+    const result = await getAllPublicEntries();
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ fehler: "Fehler beim Laden der Einträge." });
+  }
 });
 
 // 3. Create Listing
-app.post("/api/v1/eintraege", (req, res) => {
+app.post("/api/v1/eintraege", async (req, res) => {
   const { token, titel, typ, nachricht, sitzplaetze } = req.body || {};
 
   if (!token) {
     return res.status(403).json({ fehler: "Token fehlt." });
   }
 
-  const schueler = getStudentByToken(token);
+  const schueler = await getStudentByToken(token);
   if (!schueler && token !== ADMIN_SECRET) {
     return res.status(403).json({ fehler: "Token ungültig oder inaktiv." });
   }
@@ -241,37 +160,38 @@ app.post("/api/v1/eintraege", (req, res) => {
   }
 
   const authorId = schueler ? schueler.id : 1; // Default to ID 1 if admin creates
-  const newEntry: DBEntry = {
-    id: nextEntryId++,
-    titel: cleanTitel,
-    nachricht: cleanNachricht,
-    typ: cleanTyp as "Angebot" | "Gesuch",
-    sitzplaetze: validSeats,
-    schueler_id: authorId,
-    erstellungsdatum: new Date().toISOString(),
-  };
+  const result = await createEntry(
+    cleanTitel,
+    cleanNachricht,
+    cleanTyp as "Angebot" | "Gesuch",
+    validSeats,
+    authorId
+  );
 
-  entries.push(newEntry);
-  return res.status(201).json({ erfolg: true, id: newEntry.id });
+  if (!result.success) {
+    return res.status(500).json({ fehler: result.error || "Fehler beim Erstellen des Eintrags." });
+  }
+
+  return res.status(201).json({ erfolg: true, id: result.id });
 });
 
 // 4. Contact Details
-app.get("/api/v1/eintraege/:id/kontakt", (req, res) => {
+app.get("/api/v1/eintraege/:id/kontakt", async (req, res) => {
   const token = req.headers["x-auth-token"] as string;
-  const schueler = getStudentByToken(token);
+  const schueler = await getStudentByToken(token);
 
   if (!token || (!schueler && token !== ADMIN_SECRET)) {
     return res.status(401).json({ fehler: "Token ungültig oder fehlt." });
   }
 
   const entryId = parseInt(req.params.id, 10);
-  const entry = entries.find((e) => e.id === entryId);
+  const entry = await getEntryById(entryId);
 
   if (!entry) {
     return res.status(404).json({ fehler: "Eintrag nicht gefunden." });
   }
 
-  const author = students.find((s) => s.id === entry.schueler_id);
+  const author = await getStudentById(entry.schueler_id);
   if (!author) {
     return res.status(404).json({ fehler: "Verfasser nicht gefunden." });
   }
@@ -283,28 +203,31 @@ app.get("/api/v1/eintraege/:id/kontakt", (req, res) => {
 });
 
 // 5. Delete Entry (User deleting own entry or Admin)
-app.delete("/api/v1/eintraege/:id", (req, res) => {
+app.delete("/api/v1/eintraege/:id", async (req, res) => {
   const token = req.headers["x-auth-token"] as string;
   if (!token) {
     return res.status(401).json({ fehler: "Authentifizierung erforderlich. Bitte Token übergeben." });
   }
 
   const id = parseInt(req.params.id, 10);
-  const entryIndex = entries.findIndex((e) => e.id === id);
+  const entry = await getEntryById(id);
 
-  if (entryIndex === -1) {
+  if (!entry) {
     return res.status(404).json({ fehler: "Eintrag nicht gefunden oder bereits gelöscht." });
   }
 
-  const entry = entries[entryIndex];
   const isAdminUser = token === ADMIN_SECRET;
-  const schueler = getStudentByToken(token);
+  const schueler = await getStudentByToken(token);
 
   if (!isAdminUser && (!schueler || schueler.id !== entry.schueler_id)) {
     return res.status(403).json({ fehler: "Du darfst nur deine eigenen Einträge löschen." });
   }
 
-  entries.splice(entryIndex, 1);
+  const deleted = await deleteEntry(id);
+  if (!deleted) {
+    return res.status(500).json({ fehler: "Fehler beim Löschen des Eintrags." });
+  }
+
   return res.json({
     erfolg: true,
     message: "Eintrag erfolgreich gelöscht.",
@@ -321,11 +244,12 @@ function adminAuthMiddleware(req: express.Request, res: express.Response, next: 
   next();
 }
 
-app.get("/api/v1/admin/nutzer", adminAuthMiddleware, (req, res) => {
-  return res.json(students);
+app.get("/api/v1/admin/nutzer", adminAuthMiddleware, async (req, res) => {
+  const allStudents = await getAllStudents();
+  return res.json(allStudents);
 });
 
-app.post("/api/v1/admin/nutzer", adminAuthMiddleware, (req, res) => {
+app.post("/api/v1/admin/nutzer", adminAuthMiddleware, async (req, res) => {
   const { nachname, email, token, status } = req.body || {};
 
   const cleanName = (nachname || "").trim();
@@ -341,25 +265,21 @@ app.post("/api/v1/admin/nutzer", adminAuthMiddleware, (req, res) => {
     return res.status(400).json({ fehler: "Status muss 'aktiv' oder 'inaktiv' sein." });
   }
 
-  const exists = students.some((s) => s.email.toLowerCase() === cleanEmail.toLowerCase() || s.token === cleanToken);
-  if (exists) {
-    return res.status(400).json({ fehler: "E-Mail oder Token bereits vergeben." });
+  const result = await createStudent(
+    cleanName,
+    cleanEmail,
+    cleanToken,
+    cleanStatus as "aktiv" | "inaktiv"
+  );
+
+  if (!result.success) {
+    return res.status(400).json({ fehler: result.error || "Fehler beim Erstellen des Nutzers." });
   }
 
-  const newStudent: DBStudent = {
-    id: nextStudentId++,
-    nachname: cleanName,
-    email: cleanEmail,
-    token: cleanToken,
-    status: cleanStatus as "aktiv" | "inaktiv",
-    created_at: new Date().toISOString(),
-  };
-
-  students.push(newStudent);
-  return res.status(201).json({ erfolg: true, id: newStudent.id });
+  return res.status(201).json({ erfolg: true, id: result.id });
 });
 
-app.put("/api/v1/admin/nutzer/:id/status", adminAuthMiddleware, (req, res) => {
+app.put("/api/v1/admin/nutzer/:id/status", adminAuthMiddleware, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { status } = req.body || {};
 
@@ -368,76 +288,52 @@ app.put("/api/v1/admin/nutzer/:id/status", adminAuthMiddleware, (req, res) => {
     return res.status(400).json({ fehler: "Status muss 'aktiv' oder 'inaktiv' sein." });
   }
 
-  const student = students.find((s) => s.id === id);
-  if (!student) {
+  const updated = await updateStudentStatus(id, cleanStatus as "aktiv" | "inaktiv");
+  if (!updated) {
     return res.status(404).json({ fehler: "Nutzer nicht gefunden." });
   }
 
-  student.status = cleanStatus as "aktiv" | "inaktiv";
-  return res.json({ erfolg: true, id: student.id, status: student.status });
+  return res.json({ erfolg: true, id, status: cleanStatus });
 });
 
-app.delete("/api/v1/admin/nutzer/:id", adminAuthMiddleware, (req, res) => {
+app.delete("/api/v1/admin/nutzer/:id", adminAuthMiddleware, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const index = students.findIndex((s) => s.id === id);
+  const deleted = await deleteStudent(id);
 
-  if (index === -1) {
+  if (!deleted) {
     return res.status(404).json({ fehler: "Nutzer nicht gefunden." });
   }
-
-  students.splice(index, 1);
-  entries = entries.filter((e) => e.schueler_id !== id);
 
   return res.json({ erfolg: true, message: "Nutzer und alle zugehörigen Einträge wurden gelöscht." });
 });
 
-app.get("/api/v1/admin/eintraege", adminAuthMiddleware, (req, res) => {
-  const fullEntries = entries.map((e) => {
-    const author = students.find((s) => s.id === e.schueler_id);
-    return {
-      ...e,
-      nachname: author ? author.nachname : "Gelöschter Nutzer",
-      email: author ? author.email : "-",
-      schueler_status: author ? author.status : "inaktiv",
-    };
-  });
+app.get("/api/v1/admin/eintraege", adminAuthMiddleware, async (req, res) => {
+  const fullEntries = await getAdminEntries();
   return res.json(fullEntries);
 });
 
-app.delete("/api/v1/admin/eintraege/:id", adminAuthMiddleware, (req, res) => {
+app.delete("/api/v1/admin/eintraege/:id", adminAuthMiddleware, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const index = entries.findIndex((e) => e.id === id);
+  const deleted = await deleteEntry(id);
 
-  if (index === -1) {
+  if (!deleted) {
     return res.status(404).json({ fehler: "Eintrag nicht gefunden." });
   }
 
-  entries.splice(index, 1);
   return res.json({ erfolg: true, id });
 });
 
-app.get("/api/v1/admin/stats", adminAuthMiddleware, (req, res) => {
-  const totalUsers = students.length;
-  const activeUsers = students.filter((s) => s.status === "aktiv").length;
-  const inactiveUsers = totalUsers - activeUsers;
-  const totalEntries = entries.length;
-  const angeboteCount = entries.filter((e) => e.typ === "Angebot").length;
-  const gesucheCount = entries.filter((e) => e.typ === "Gesuch").length;
-  const totalSeatsOffered = entries.reduce((acc, curr) => acc + (curr.sitzplaetze || 0), 0);
-
-  return res.json({
-    totalUsers,
-    activeUsers,
-    inactiveUsers,
-    totalEntries,
-    angeboteCount,
-    gesucheCount,
-    totalSeatsOffered,
-  });
+app.get("/api/v1/admin/stats", adminAuthMiddleware, async (req, res) => {
+  const stats = await getStats();
+  return res.json(stats);
 });
 
 // START SERVER / VITE MIDDLEWARE
 async function startServer() {
+  // Initialize Database (MySQL or fallback to in-memory)
+  const dbStatus = await initDatabase();
+  console.log(`[Status] Datenbank: ${dbStatus.message}`);
+
   const isProduction =
     process.env.NODE_ENV === "production" ||
     process.argv[1]?.includes("server.cjs") ||
@@ -452,7 +348,7 @@ async function startServer() {
   } else {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -471,7 +367,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`BBS GuT Rideshare Server running on http://localhost:${PORT}`);
+    console.log(`BBS GuT Rideshare Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -8,6 +8,23 @@
     <meta property="og:title" content="BBS GuT Mitfahrzentrale" />
     <meta property="og:description" content="Schwarzes Brett für Schul-Mitfahrgelegenheiten der Berufsbildenden Schule Gestaltung und Technik Trier" />
     <title>BBS GuT Mitfahrzentrale · Berufsbildende Schule Gestaltung und Technik Trier</title>
+    <script>
+      // Suppress Vite dev HMR WebSocket connection errors in preview proxy environment
+      window.addEventListener('error', function(e) {
+        var msg = (e && (e.message || (e.error && e.error.message))) || '';
+        if (msg.includes('WebSocket') || msg.includes('createWebSocketModuleRunnerTransport') || msg.includes('@vite/client')) {
+          e.preventDefault && e.preventDefault();
+          e.stopImmediatePropagation && e.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var r = (e && e.reason) ? String(e.reason) : '';
+        if (r.includes('WebSocket') || r.includes('createWebSocketModuleRunnerTransport') || r.includes('@vite/client')) {
+          e.preventDefault && e.preventDefault();
+          e.stopImmediatePropagation && e.stopImmediatePropagation();
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,0 +1,46 @@
+services:
+  # MySQL Database Service
+  mysql:
+    image: mysql:8.0
+    container_name: bbs_rideshare_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secure_password
+      MYSQL_DATABASE: bbs_mitfahrzentrale
+      MYSQL_USER: bbs_user
+      MYSQL_PASSWORD: bbs_secure_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secure_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Node.js Web App Service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bbs_rideshare_app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      ADMIN_TOKEN: Wulli
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: bbs_user
+      MYSQL_PASSWORD: bbs_secure_password
+      MYSQL_DATABASE: bbs_mitfahrzentrale
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql_data:
+    driver: local
